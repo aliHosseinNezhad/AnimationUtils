@@ -4,7 +4,6 @@ import android.os.CountDownTimer
 import android.util.Log
 import kotlin.math.PI
 import kotlin.math.cos
-import kotlin.math.min
 import kotlin.math.sin
 
 class AnimateUtils(var interval: Long) {
@@ -38,7 +37,7 @@ class AnimateUtils(var interval: Long) {
         }
     }
 
-    fun frame(from: Long, to: Long, param: (Float) -> Unit): Data {
+    fun frame(from: Long, to: Long, param: (Double) -> Unit): Data {
         val frame = Frame(param)
         val data = Data(frame, from, to)
         frames.add(frame)
@@ -78,7 +77,7 @@ class AnimateUtils(var interval: Long) {
                     if (revert) it.end() else it.start()
                 }
                 it.lastDisplayed = true
-                it.refresh(calculate(time, it.sTime, it.eTime, it.sWeight, it.eWeight, it.expand))
+                it.refresh(calculate(time, it.sTime, it.eTime, it.sWeight, it.eWeight, it.curveModel))
             } else if (if (revert) it.sTime > time else it.eTime < time) {
                 if (it.lastDisplayed)
                     if (revert) it.start() else it.end()
@@ -93,16 +92,25 @@ class AnimateUtils(var interval: Long) {
         time: Long,
         sTime: Long,
         eTime: Long,
-        sWeight: Float,
-        eWeight: Float,
-        expand: Boolean
-    ): Float {
-        val t = (time - sTime) / (eTime - sTime).toFloat()
-        return (if (expand) {
-            sin(t * PI / 2)
-        } else {
-            cos(t * PI / 2)
-        }).toFloat()
+        sWeight: Float=0f,
+        eWeight: Float=1f,
+        model: TimeLine.CurveModel
+    ): Double {
+        val t = sWeight + (eWeight-sWeight)*(time - sTime) / (eTime - sTime).toFloat()
+        return when(model){
+            TimeLine.CurveModel.LINEAR ->{
+                t.toDouble()
+            }
+            TimeLine.CurveModel.COS ->{
+                cos(t * PI*2)
+            }
+            TimeLine.CurveModel.SIN ->{
+                sin(t * PI *2)
+            }
+            TimeLine.CurveModel.X_SIN ->{
+                (t*PI*2 - sin(t * PI *2))/(2*PI)
+            }
+        }
     }
 
     class Data(
@@ -112,27 +120,20 @@ class AnimateUtils(var interval: Long) {
         //endTime
         val eTime: Long
     ) {
-        // startWeight
-        private var sWeight: Float = 0f
 
-        //endWeight
-        private var eWeight: Float = 1f
-        var expand: Boolean = true
-            set(value) {
-                field = value
-                frame.expand = value
-            }
+        fun mode(curveModel: TimeLine.CurveModel): Data {
+            frame.curveModel = curveModel
+            return this
+        }
 
         init {
             frame.sTime = sTime
             frame.eTime = eTime
-            frame.sWeight = sWeight
-            frame.eWeight = eWeight
+            frame.sWeight = 0f
+            frame.eWeight = 1f
         }
 
         fun out(sWeight: Float, eWeight: Float): Data {
-            this.sWeight = sWeight
-            this.eWeight = eWeight
             frame.sWeight = sWeight
             frame.eWeight = eWeight
             return this
@@ -149,13 +150,13 @@ class AnimateUtils(var interval: Long) {
         }
     }
 
-    class Frame(private var param: ((Float) -> Unit)) {
-        var expand: Boolean = true
+    class Frame(private var param: ((Double) -> Unit)) {
+        var curveModel: TimeLine.CurveModel = TimeLine.CurveModel.LINEAR
         var lastDisplayed = false
         var sTime: Long = 0
         var eTime: Long = 0
         var sWeight: Float = 0f
-        var eWeight: Float = 0f
+        var eWeight: Float = 1f
         var onStartParam: (() -> Unit)? = null
         var onEndParam: (() -> Unit)? = null
         fun start() {
@@ -166,7 +167,7 @@ class AnimateUtils(var interval: Long) {
             onEndParam?.let { it() }
         }
 
-        fun refresh(it: Float) {
+        fun refresh(it: Double) {
             param(it)
         }
 
@@ -229,5 +230,8 @@ class TimeLine(val duration: Long, val interval: Long) {
             }
         }
 
+    }
+    enum class CurveModel{
+        LINEAR,SIN,COS,X_SIN
     }
 }
