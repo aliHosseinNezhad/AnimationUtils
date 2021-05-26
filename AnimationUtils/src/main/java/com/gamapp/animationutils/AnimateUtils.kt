@@ -2,26 +2,39 @@ package com.gamapp.animationutils
 
 import android.os.CountDownTimer
 import android.util.Log
+import androidx.annotation.IntRange
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-class AnimateUtils(var interval: Long) {
+class AnimateUtils(
+    @IntRange(from = 1) var interval: Long = 1L,
+    param: (AnimateUtils.() -> Unit)? = null
+) {
+
+
     private var isAnimating: Boolean = false
     private var timeLine = TimeLine(1, interval)
-    private var frames = ArrayList<Frame>()
+    private var framesArray = ArrayList<Frames>()
     private var minTime = 0L
     private var maxTime = 0L
     private var onStartParam: (() -> Unit)? = null
     private var onEndParam: (() -> Unit)? = null
     var revert: Boolean = false
+
+    init {
+        param?.let {
+            it(this)
+        }
+    }
+
     fun start(revert: Boolean = false) {
         if (!isAnimating) {
             isAnimating = true
             this.revert = revert
             timeLine.stop()
             timeLine = TimeLine(maxTime, interval)
-            frames.forEach {
+            framesArray.forEach {
                 it.lastDisplayed = false
             }
             timeLine.start()
@@ -37,10 +50,10 @@ class AnimateUtils(var interval: Long) {
         }
     }
 
-    fun frame(from: Long, to: Long, param: (Double) -> Unit): Data {
-        val frame = Frame(param)
+    fun animation(from: Long, to: Long, param: (Float) -> Unit): Data {
+        val frame = Frames(param)
         val data = Data(frame, from, to)
-        frames.add(frame)
+        framesArray.add(frame)
         if (frame.sTime < minTime) {
             minTime = frame.sTime
         }
@@ -60,7 +73,7 @@ class AnimateUtils(var interval: Long) {
 
 
     private fun end(time: Long) {
-        frames.forEach {
+        framesArray.forEach {
             if (it.lastDisplayed)
                 if (revert) it.start() else it.end()
             it.lastDisplayed = false
@@ -71,13 +84,23 @@ class AnimateUtils(var interval: Long) {
     }
 
     private fun refresh(time: Long, last: Boolean) {
-        frames.forEach {
+        framesArray.forEach {
             if (time in it.sTime..it.eTime) {
                 if (!it.lastDisplayed) {
                     if (revert) it.end() else it.start()
                 }
                 it.lastDisplayed = true
-                it.refresh(calculate(time, it.sTime, it.eTime, it.sWeight, it.eWeight, it.curveModel))
+                it.refresh(
+                    calculate(
+                        time,
+                        it.sTime,
+                        it.eTime,
+                        it.curveModel,
+                        it.cofficient,
+                        it.sWeight,
+                        it.eWeight
+                    )
+                )
             } else if (if (revert) it.sTime > time else it.eTime < time) {
                 if (it.lastDisplayed)
                     if (revert) it.start() else it.end()
@@ -92,37 +115,40 @@ class AnimateUtils(var interval: Long) {
         time: Long,
         sTime: Long,
         eTime: Long,
-        sWeight: Float=0f,
-        eWeight: Float=1f,
-        model: TimeLine.CurveModel
-    ): Double {
-        val t = sWeight + (eWeight-sWeight)*(time - sTime) / (eTime - sTime).toFloat()
-        return when(model){
-            TimeLine.CurveModel.LINEAR ->{
-                t.toDouble()
+        model: CurveModel, coefficient: Float = 1f,
+        sWeight: Float = 0f,
+        eWeight: Float = 1f
+    ): Float {
+        var t = (time - sTime) / (eTime - sTime).toFloat()
+        t *= coefficient
+        t = sWeight + (eWeight - sWeight) * t
+        return when (model) {
+            CurveModel.LINEAR -> {
+                t
             }
-            TimeLine.CurveModel.COS ->{
-                cos(t * PI*2)
+            CurveModel.COS -> {
+                cos(t * PI * 2)
             }
-            TimeLine.CurveModel.SIN ->{
-                sin(t * PI *2)
+            CurveModel.SIN -> {
+                sin(t * PI * 2)
             }
-            TimeLine.CurveModel.X_SIN ->{
-                (t*PI*2 - sin(t * PI *2))/(2*PI)
+            CurveModel.X_SIN -> {
+                (t * PI * 2 - sin(t * PI * 2)) / (2 * PI)
             }
-        }
+        }.toFloat()
     }
 
     class Data(
-        private val frame: Frame,
+        private val frame: Frames,
         //startTime
         val sTime: Long,
         //endTime
         val eTime: Long
     ) {
 
-        fun mode(curveModel: TimeLine.CurveModel): Data {
+        fun mode(curveModel: CurveModel, coefficient: Float = 1f): Data {
             frame.curveModel = curveModel
+            frame.cofficient = coefficient
             return this
         }
 
@@ -133,7 +159,7 @@ class AnimateUtils(var interval: Long) {
             frame.eWeight = 1f
         }
 
-        fun out(sWeight: Float, eWeight: Float): Data {
+        fun domain(sWeight: Float, eWeight: Float): Data {
             frame.sWeight = sWeight
             frame.eWeight = eWeight
             return this
@@ -150,8 +176,9 @@ class AnimateUtils(var interval: Long) {
         }
     }
 
-    class Frame(private var param: ((Double) -> Unit)) {
-        var curveModel: TimeLine.CurveModel = TimeLine.CurveModel.LINEAR
+    class Frames(private var param: ((Float) -> Unit)) {
+        var cofficient: Float = 1f
+        var curveModel: CurveModel = CurveModel.LINEAR
         var lastDisplayed = false
         var sTime: Long = 0
         var eTime: Long = 0
@@ -167,13 +194,17 @@ class AnimateUtils(var interval: Long) {
             onEndParam?.let { it() }
         }
 
-        fun refresh(it: Double) {
+        fun refresh(it: Float) {
             param(it)
         }
 
     }
 
+    enum class CurveModel {
+        LINEAR, SIN, COS, X_SIN
+    }
 }
+
 class TimeLine(val duration: Long, val interval: Long) {
     var countDownTimer = Timer(duration, interval)
     var currentTime = 0L
@@ -209,11 +240,12 @@ class TimeLine(val duration: Long, val interval: Long) {
         onTickParam = param
     }
 
+
     inner class Timer(val duration: Long, val interval: Long) :
         CountDownTimer(duration, interval) {
         override fun onTick(millisUntilFinished: Long) {
             currentTime = duration - millisUntilFinished
-            synchronized(this@TimeLine){
+            synchronized(this@TimeLine) {
                 onTickParam?.let {
                     it(currentTime + lastTime)
                 }
@@ -231,7 +263,5 @@ class TimeLine(val duration: Long, val interval: Long) {
         }
 
     }
-    enum class CurveModel{
-        LINEAR,SIN,COS,X_SIN
-    }
+
 }
