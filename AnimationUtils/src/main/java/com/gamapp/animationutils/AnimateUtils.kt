@@ -1,8 +1,8 @@
 package com.gamapp.animationutils
 
 import android.os.CountDownTimer
-import android.util.Log
 import androidx.annotation.IntRange
+import com.gamapp.animationutils.AnimateUtils.Direction.*
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -11,16 +11,18 @@ open class AnimateUtils(
     @IntRange(from = 1) var interval: Long = 1L,
     param: (AnimateUtils.() -> Unit)? = null
 ) {
-
-
-    private var isAnimating: Boolean = false
-    private var timeLine = TimeLine(1, interval)
+    private var timeLine: TimeLine? = null
     private var framesArray = ArrayList<Frames>()
     private var minTime = 0L
     private var maxTime = 0L
-    private var onStartParam: (() -> Unit)? = null
-    private var onEndParam: (() -> Unit)? = null
-    var revert: Boolean = false
+    private var onStartParam: ((Direction) -> Unit)? = null
+    private var onEndParam: ((Direction) -> Unit)? = null
+    private var direction = STE
+    private var currentTime: Long = 0L
+        set(value) {
+            field = value
+        }
+    private val duration: Long get() = maxTime
 
     init {
         param?.let {
@@ -28,27 +30,43 @@ open class AnimateUtils(
         }
     }
 
-    fun start(revert: Boolean = false) {
-        if (!isAnimating) {
-            isAnimating = true
-            this.revert = revert
-            timeLine.stop()
-            timeLine = TimeLine(maxTime, interval)
-            framesArray.forEach {
-                it.lastDisplayed = false
+    fun start(direction: Direction) {
+        this.direction = direction
+        timeLine?.stop()
+        timeLine = if (direction == ETS) {
+            if (currentTime == 0L) {
+                initFrames()
+                TimeLine(duration, interval, direction)
+            } else {
+                if (currentTime == duration) {
+                    initFrames()
+                }
+                TimeLine(currentTime, interval, direction)
             }
-            timeLine.start()
-            if (revert) onEndParam?.let { it() } else
-                onStartParam?.let { it() }
-            timeLine.onRefresh {
-                refresh(
-                    if (revert) maxTime - it else it,
-                    if (revert) it == 0L else it == maxTime
-                )
+        } else {
+            if (currentTime == duration) {
+                if (currentTime == 0L) {
+                    initFrames()
+                }
+                TimeLine(duration, interval, direction)
+            } else {
+                if (currentTime == 0L) {
+                    initFrames()
+                }
+                val timeLine = TimeLine(duration - currentTime, interval, direction)
+                timeLine.startTime = currentTime
+                timeLine
             }
-            timeLine.onEnd { end(if (revert) maxTime - it else it) }
+        }
+        timeLine?.let { it ->
+            it.onRefresh {
+                refresh(it)
+            }
+            it.onEnd { end() }
+            it.start()
         }
     }
+
 
     fun animation(from: Long, to: Long, param: (Float) -> Unit): Data {
         val frame = Frames(param)
@@ -63,31 +81,33 @@ open class AnimateUtils(
         return data
     }
 
-    fun onStart(param: () -> Unit) {
+
+    private fun initFrames() {
+        framesArray.forEach {
+            it.lastDisplayed = false
+        }
+    }
+
+    fun onStart(param: (Direction) -> Unit) {
         onStartParam = param
     }
 
-    fun onEnd(param: () -> Unit) {
+    fun onEnd(param: (Direction) -> Unit) {
         onEndParam = param
     }
 
 
-    private fun end(time: Long) {
-        framesArray.forEach {
-            if (it.lastDisplayed)
-                if (revert) it.start() else it.end()
-            it.lastDisplayed = false
-        }
-        if (revert) onStartParam?.let { it() } else
-            onEndParam?.let { it() }
-        isAnimating = false
+    private fun end() {
+        if (direction == ETS) onStartParam?.let { it(direction) } else
+            onEndParam?.let { it(direction) }
     }
 
-    private fun refresh(time: Long, last: Boolean) {
+    private fun refresh(time: Long) {
+        currentTime = time
         framesArray.forEach {
             if (time in it.sTime..it.eTime) {
                 if (!it.lastDisplayed) {
-                    if (revert) it.end() else it.start()
+                    if (ETS == direction) it.end(direction) else it.start(direction)
                 }
                 it.lastDisplayed = true
                 it.refresh(
@@ -96,31 +116,29 @@ open class AnimateUtils(
                         it.sTime,
                         it.eTime,
                         it.curveModel,
-                        it.cofficient,
                         it.sWeight,
                         it.eWeight
                     )
                 )
-            } else if (if (revert) it.sTime > time else it.eTime < time) {
+            }
+            if (if (ETS == direction) it.sTime >= time else it.eTime <= time) {
                 if (it.lastDisplayed)
-                    if (revert) it.start() else it.end()
+                    if (ETS == direction) it.start(direction) else it.end(direction)
                 it.lastDisplayed = false
             }
         }
-
     }
 
 
-    fun calculate(
+    private fun calculate(
         time: Long,
         sTime: Long,
         eTime: Long,
-        model: CurveModel, coefficient: Float = 1f,
+        model: CurveModel,
         sWeight: Float = 0f,
         eWeight: Float = 1f
     ): Float {
         var t = (time - sTime) / (eTime - sTime).toFloat()
-        t *= coefficient
         t = sWeight + (eWeight - sWeight) * t
         return when (model) {
             CurveModel.LINEAR -> {
@@ -146,9 +164,8 @@ open class AnimateUtils(
         val eTime: Long
     ) {
 
-        fun mode(curveModel: CurveModel, coefficient: Float = 1f): Data {
+        fun mode(curveModel: CurveModel): Data {
             frame.curveModel = curveModel
-            frame.cofficient = coefficient
             return this
         }
 
@@ -165,33 +182,32 @@ open class AnimateUtils(
             return this
         }
 
-        fun onStart(param: () -> Unit): Data {
+        fun onStart(param: (Direction) -> Unit): Data {
             frame.onStartParam = param
             return this
         }
 
-        fun onEnd(param: () -> Unit): Data {
+        fun onEnd(param: (Direction) -> Unit): Data {
             frame.onEndParam = param
             return this
         }
     }
 
     class Frames(private var param: ((Float) -> Unit)) {
-        var cofficient: Float = 1f
         var curveModel: CurveModel = CurveModel.LINEAR
         var lastDisplayed = false
         var sTime: Long = 0
         var eTime: Long = 0
         var sWeight: Float = 0f
         var eWeight: Float = 1f
-        var onStartParam: (() -> Unit)? = null
-        var onEndParam: (() -> Unit)? = null
-        fun start() {
-            onStartParam?.let { it() }
+        var onStartParam: ((Direction) -> Unit)? = null
+        var onEndParam: ((Direction) -> Unit)? = null
+        fun start(direction: Direction) {
+            onStartParam?.let { it(direction) }
         }
 
-        fun end() {
-            onEndParam?.let { it() }
+        fun end(direction: Direction) {
+            onEndParam?.let { it(direction) }
         }
 
         fun refresh(it: Float) {
@@ -203,21 +219,38 @@ open class AnimateUtils(
     enum class CurveModel {
         LINEAR, SIN, COS, X_SIN
     }
+
+    enum class Direction {
+        STE, //start to end time
+        ETS //end to start time
+    }
 }
 
-class TimeLine(val duration: Long, val interval: Long) {
+class TimeLine(val duration: Long, val interval: Long, val direction: AnimateUtils.Direction) {
     var countDownTimer = Timer(duration, interval)
-    var currentTime = 0L
-    var lastTime = 0L
-    var finishParam: ((Long) -> Unit)? = null
-    var onTickParam: ((Long) -> Unit)? = null
+    private var nextTime = 0L
+    private var lastTime = 0L
+    var startTime = 0L
+    val currentTime get() = nextTime + lastTime
+    private var finishParam: (() -> Unit)? = null
+    private var onTickParam: ((Long) -> Unit)? = null
+    private fun getTimeByDirection(time: Long): Long {
+        return startTime + (if (direction == STE) {
+            time
+        } else duration - (time))
+    }
+
     fun start() {
-        currentTime = 0L
+        nextTime = 0L
         lastTime = 0L
         countDownTimer.cancel()
         countDownTimer = Timer(duration, interval)
+        synchronized(this) {
+            onTickParam?.let {
+                it(getTimeByDirection(0))
+            }
+        }
         countDownTimer.start()
-
     }
 
     fun stop() {
@@ -226,13 +259,13 @@ class TimeLine(val duration: Long, val interval: Long) {
 
     fun resume(revert: Boolean = false) {
         countDownTimer.cancel()
-        lastTime += currentTime
-        currentTime = 0
+        lastTime += nextTime
+        nextTime = 0
         countDownTimer = Timer(duration - lastTime, interval)
         countDownTimer.start()
     }
 
-    fun onEnd(param: (Long) -> Unit) {
+    fun onEnd(param: () -> Unit) {
         finishParam = param
     }
 
@@ -240,26 +273,27 @@ class TimeLine(val duration: Long, val interval: Long) {
         onTickParam = param
     }
 
-
     inner class Timer(val duration: Long, val interval: Long) :
         CountDownTimer(duration, interval) {
         override fun onTick(millisUntilFinished: Long) {
-            currentTime = duration - millisUntilFinished
+            nextTime = duration - millisUntilFinished
             synchronized(this@TimeLine) {
                 onTickParam?.let {
-                    it(currentTime + lastTime)
+                    it(getTimeByDirection(nextTime + lastTime))
                 }
             }
-            Log.i("TAG011", "onTick: ${currentTime + lastTime}")
         }
 
         override fun onFinish() {
-            onTickParam?.let {
-                it(currentTime + lastTime)
+            synchronized(this@TimeLine) {
+                onTickParam?.let {
+                    it(getTimeByDirection(duration))
+                }
+                finishParam?.let {
+                    it()
+                }
             }
-            finishParam?.let {
-                it(currentTime + lastTime)
-            }
+
         }
 
     }

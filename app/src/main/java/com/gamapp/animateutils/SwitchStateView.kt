@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import com.gamapp.animationutils.AnimateUtils
@@ -16,14 +17,15 @@ class SwitchStateView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
     private var weight: Float = 2f
     var animationUtils = AnimateUtils {
-        animation(0, 8000) {
+        animation(0, 1000) {
+            Log.i("TAG02222", "current time : $it")
             weight = abs(it)*2f
             postInvalidate()
         }
-            .domain(0f, 2f)
-            .mode(AnimateUtils.CurveModel.COS, 1f)
-            .onStart { }
-            .onEnd { }
+            .domain(0f, 0.25f)
+            .mode(AnimateUtils.CurveModel.COS)
+            .onStart { Log.i("TAG02222", " onStart ")}
+            .onEnd {Log.i("TAG02222", " onEnd ") }
     }
 
 
@@ -42,7 +44,7 @@ class SwitchStateView @JvmOverloads constructor(
         event?.let {
             when (it.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    animationUtils.start()
+                    animationUtils.start(AnimateUtils.Direction.STE)
                 }
             }
         }
