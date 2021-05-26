@@ -7,7 +7,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-class AnimateUtils(
+open class AnimateUtils(
     @IntRange(from = 1) var interval: Long = 1L,
     param: (AnimateUtils.() -> Unit)? = null
 ) {
