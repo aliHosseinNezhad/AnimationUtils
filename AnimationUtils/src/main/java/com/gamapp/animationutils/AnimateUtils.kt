@@ -67,6 +67,18 @@ open class AnimateUtils(
         }
     }
 
+    fun stop(){
+        timeLine?.stop()
+    }
+
+
+    fun reset(){
+        stop()
+        timeLine = null
+        currentTime = 0L
+        initFrames()
+    }
+
 
     fun animation(from: Long, to: Long, param: (Float) -> Unit): Data {
         val frame = Frames(param)
